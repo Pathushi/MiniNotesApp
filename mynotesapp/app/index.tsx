@@ -33,6 +33,11 @@ export default function NotesPage() {
   const [editContent, setEditContent] = useState("");
   const [refreshing, setRefreshing] = useState(false);
 
+  // nicer add UX
+  const [adding, setAdding] = useState(false);
+  const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const NOTICE_TIMEOUT = 2000;
+
   const fetchNotes = async () => {
     setLoading(true);
     setError(null);
@@ -51,14 +56,22 @@ export default function NotesPage() {
 
   const addNote = async () => {
     if (!title.trim() || !content.trim()) return;
+    setAdding(true);
+    setError(null);
     try {
       await axios.post(BASE_URL, { title, content });
       setTitle("");
       setContent("");
       fetchNotes();
+      setNotice({ type: "success", text: "Note added" });
+      setTimeout(() => setNotice(null), NOTICE_TIMEOUT);
     } catch (err) {
       console.error(err);
       setError("Add failed");
+      setNotice({ type: "error", text: "Add failed" });
+      setTimeout(() => setNotice(null), NOTICE_TIMEOUT);
+    } finally {
+      setAdding(false);
     }
   };
 
@@ -105,17 +118,23 @@ export default function NotesPage() {
 
       {error && <Text style={styles.error}>{error}</Text>}
 
-      <TextInput style={styles.input} placeholder="Title" value={title} onChangeText={setTitle} />
-      <TextInput
-        style={[styles.input, styles.multiline]}
-        placeholder="Content"
-        value={content}
-        onChangeText={setContent}
-        multiline
-      />
-      <TouchableOpacity style={styles.primaryButton} onPress={addNote}>
-        <Text style={styles.buttonText}>Add Note</Text>
-      </TouchableOpacity>
+      <View style={[styles.inputCard]}>
+        <Text style={[styles.sectionTitle]}>Create Note</Text>
+        <TextInput style={[styles.input]} placeholder="Title" value={title} onChangeText={setTitle} maxLength={120} />
+        <Text style={{ alignSelf: "flex-end", marginBottom: 6, color: "#6b7280" }}>{title.length}/120</Text>
+        <TextInput style={[styles.input, styles.multiline]} placeholder="Content" value={content} onChangeText={setContent} multiline maxLength={1000} />
+        <Text style={{ alignSelf: "flex-end", marginBottom: 6, color: "#6b7280" }}>{content.length}/1000</Text>
+
+        {notice ? (
+          <View style={{ padding: 8, borderRadius: 6, backgroundColor: notice.type === "success" ? "#d1fae5" : "#fee2e2", marginBottom: 8 }}>
+            <Text style={{ color: notice.type === "success" ? "#065f46" : "#b91c1c" }}>{notice.text}</Text>
+          </View>
+        ) : null}
+
+        <TouchableOpacity style={[styles.primaryButton, { opacity: adding || !title.trim() || !content.trim() ? 0.6 : 1 }]} onPress={addNote} disabled={adding || !title.trim() || !content.trim()}>
+          {adding ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Add Note</Text>}
+        </TouchableOpacity>
+      </View>
 
       {loading && <ActivityIndicator style={{ marginTop: 8 }} />}
 
@@ -181,4 +200,6 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 8 },
   ghostButton: { backgroundColor: "transparent", paddingVertical: 10 },
   ghostText: { color: "#2563eb", fontWeight: "600" },
+  inputCard: { backgroundColor: "#fff", borderRadius: 10, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: "#e6e9ee" },
+  sectionTitle: { fontSize: 16, fontWeight: "500", marginBottom: 12 },
 });

@@ -29,6 +29,11 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  // nicer add UX
+  const [adding, setAdding] = useState(false);
+  const [notice, setNotice] = useState(null); // {type: 'success'|'error', text}
+  const NOTICE_TIMEOUT = 2000;
+
   // new state for editing + pull-to-refresh
   const [editingNote, setEditingNote] = useState(null);
   const [isModalVisible, setIsModalVisible] = useState(false);
@@ -81,6 +86,8 @@ export default function App() {
   // Add new note
   const addNote = async () => {
     if (title.trim() && content.trim()) {
+      setAdding(true);
+      setError(null);
       try {
         const url = baseUrl || (await resolveBaseUrl());
         if (!url) throw new Error("No backend URL available");
@@ -88,11 +95,15 @@ export default function App() {
         setTitle("");
         setContent("");
         fetchNotes(url); // refresh notes
+        setNotice({ type: "success", text: "Note added" });
+        setTimeout(() => setNotice(null), NOTICE_TIMEOUT);
       } catch (err) {
         console.error("Add note error:", err.response?.status, err.message || err);
-        setError(
-          `Add note failed: ${err.response?.status ? `status ${err.response.status}` : (err.message || "unknown error")}`
-        );
+        const msg = err.response?.status ? `status ${err.response.status}` : (err.message || "unknown error");
+        setNotice({ type: "error", text: `Add failed: ${msg}` });
+        setTimeout(() => setNotice(null), NOTICE_TIMEOUT);
+      } finally {
+        setAdding(false);
       }
     }
   };
@@ -158,16 +169,31 @@ export default function App() {
       <Text style={styles.header}>📒 My Notes</Text>
 
       <View style={styles.inputRow}>
-        <TextInput style={styles.input} placeholder="Title" value={title} onChangeText={setTitle} />
+        <TextInput style={styles.input} placeholder="Title" value={title} onChangeText={setTitle} maxLength={120} />
+        <Text style={{ alignSelf: "flex-end", marginBottom: 6, color: "#6b7280" }}>{title.length}/120</Text>
         <TextInput
           style={[styles.input, styles.inputMultiline]}
           placeholder="Content"
           value={content}
           onChangeText={setContent}
           multiline
+          maxLength={1000}
         />
-        <TouchableOpacity style={styles.primaryButton} onPress={addNote}>
-          <Text style={styles.buttonText}>Add Note</Text>
+        <Text style={{ alignSelf: "flex-end", marginBottom: 6, color: "#6b7280" }}>{content.length}/1000</Text>
+
+        {/* transient notice */}
+        {notice ? (
+          <View style={{ padding: 8, borderRadius: 6, backgroundColor: notice.type === "success" ? "#d1fae5" : "#fee2e2", marginBottom: 8 }}>
+            <Text style={{ color: notice.type === "success" ? "#065f46" : "#b91c1c" }}>{notice.text}</Text>
+          </View>
+        ) : null}
+
+        <TouchableOpacity
+          style={[styles.primaryButton, { opacity: adding || !title.trim() || !content.trim() ? 0.6 : 1 }]}
+          onPress={addNote}
+          disabled={adding || !title.trim() || !content.trim()}
+        >
+          {adding ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Add Note</Text>}
         </TouchableOpacity>
         <TouchableOpacity style={styles.ghostButton} onPress={onRefresh}>
           <Text style={styles.ghostText}>Refresh</Text>
