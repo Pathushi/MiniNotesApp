@@ -18,6 +18,8 @@ const CANDIDATE_URLS = [
   "http://10.0.2.2:8000/api/notes/", // Android emulator (default)
   "http://10.0.3.2:8000/api/notes/", // Genymotion
 ];
+const REQUEST_TIMEOUT = 5000;
+axios.defaults.headers.common["Accept"] = "application/json";
 
 export default function App() {
   const [notes, setNotes] = useState([]);
@@ -36,11 +38,13 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      const response = await axios.get(url, { timeout: 5000 });
-      setNotes(response.data);
+      const response = await axios.get(url, { timeout: REQUEST_TIMEOUT });
+      // ensure response.data is an array (avoid crashes if backend returns object)
+      const data = Array.isArray(response.data) ? response.data : [];
+      setNotes(data);
     } catch (err) {
-      console.error("Fetch notes error:", err.message || err);
-      setError(`Fetch failed: ${err.message || "unknown error"}`);
+      console.error("Fetch notes error:", err.response?.status, err.message || err);
+      setError(`Fetch failed: ${err.response?.status ? `status ${err.response.status}` : (err.message || "unknown error")}`);
     } finally {
       setLoading(false);
     }
@@ -56,7 +60,8 @@ export default function App() {
         console.log("Using backend:", candidate);
         return candidate;
       } catch (e) {
-        // try next
+        // log unreachable candidate for debugging and try next
+        console.log("Candidate unreachable:", candidate, e.message || e);
       }
     }
     setError(
@@ -71,13 +76,13 @@ export default function App() {
       try {
         const url = baseUrl || (await resolveBaseUrl());
         if (!url) throw new Error("No backend URL available");
-        await axios.post(url, { title, content });
+        await axios.post(url, { title, content }, { timeout: REQUEST_TIMEOUT });
         setTitle("");
         setContent("");
         fetchNotes(url); // refresh notes
       } catch (err) {
-        console.error("Add note error:", err.message || err);
-        setError(`Add note failed: ${err.message || "unknown error"}`);
+        console.error("Add note error:", err.response?.status, err.message || err);
+        setError(`Add note failed: ${err.response?.status ? `status ${err.response.status}` : (err.message || "unknown error")}`);
       }
     }
   };
@@ -126,7 +131,7 @@ export default function App() {
 
       <FlatList
         data={notes}
-        keyExtractor={(item) => item.id.toString()}
+        keyExtractor={(item, index) => (item && item.id != null ? String(item.id) : String(index))}
         renderItem={({ item }) => (
           <View style={styles.noteCard}>
             <Text style={styles.noteTitle}>{item.title}</Text>
