@@ -4,10 +4,10 @@ import {
   Text,
   TextInput,
   View,
-  Button,
   FlatList,
   ActivityIndicator,
-  Platform,
+  TouchableOpacity,
+  Modal,
 } from "react-native";
 import axios from "axios";
 
@@ -29,6 +29,13 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  // new state for editing + pull-to-refresh
+  const [editingNote, setEditingNote] = useState(null);
+  const [isModalVisible, setIsModalVisible] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editContent, setEditContent] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+
   // Fetch notes from Django backend
   const fetchNotes = async (url = baseUrl) => {
     if (!url) {
@@ -44,9 +51,12 @@ export default function App() {
       setNotes(data);
     } catch (err) {
       console.error("Fetch notes error:", err.response?.status, err.message || err);
-      setError(`Fetch failed: ${err.response?.status ? `status ${err.response.status}` : (err.message || "unknown error")}`);
+      setError(
+        `Fetch failed: ${err.response?.status ? `status ${err.response.status}` : (err.message || "unknown error")}`
+      );
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -64,9 +74,7 @@ export default function App() {
         console.log("Candidate unreachable:", candidate, e.message || e);
       }
     }
-    setError(
-      "Could not reach any candidate backend URL. Check device-network, emulator host or backend CORS."
-    );
+    setError("Could not reach any candidate backend URL. Check device-network, emulator host or backend CORS.");
     return null;
   };
 
@@ -82,8 +90,51 @@ export default function App() {
         fetchNotes(url); // refresh notes
       } catch (err) {
         console.error("Add note error:", err.response?.status, err.message || err);
-        setError(`Add note failed: ${err.response?.status ? `status ${err.response.status}` : (err.message || "unknown error")}`);
+        setError(
+          `Add note failed: ${err.response?.status ? `status ${err.response.status}` : (err.message || "unknown error")}`
+        );
       }
+    }
+  };
+
+  // Delete note
+  const deleteNote = async (id) => {
+    try {
+      const url = baseUrl || (await resolveBaseUrl());
+      if (!url) throw new Error("No backend URL available");
+      await axios.delete(`${url}${id}/`, { timeout: REQUEST_TIMEOUT });
+      fetchNotes(url);
+    } catch (err) {
+      console.error("Delete error:", err.response?.status, err.message || err);
+      setError("Delete failed. See console for details.");
+    }
+  };
+
+  // Open edit modal
+  const openEdit = (note) => {
+    setEditingNote(note);
+    setEditTitle(note.title || "");
+    setEditContent(note.content || "");
+    setIsModalVisible(true);
+  };
+
+  // Save edit
+  const saveEdit = async () => {
+    if (!editingNote) return;
+    try {
+      const url = baseUrl || (await resolveBaseUrl());
+      if (!url) throw new Error("No backend URL available");
+      await axios.put(
+        `${url}${editingNote.id}/`,
+        { title: editTitle, content: editContent },
+        { timeout: REQUEST_TIMEOUT }
+      );
+      setIsModalVisible(false);
+      setEditingNote(null);
+      fetchNotes(url);
+    } catch (err) {
+      console.error("Edit error:", err.response?.status, err.message || err);
+      setError("Edit failed. See console for details.");
     }
   };
 
@@ -94,88 +145,202 @@ export default function App() {
     })();
   }, []);
 
+  // pull-to-refresh handler
+  const onRefresh = async () => {
+    setRefreshing(true);
+    const url = baseUrl || (await resolveBaseUrl());
+    if (url) await fetchNotes(url);
+    else setRefreshing(false);
+  };
+
   return (
     <View style={styles.container}>
-      <Text style={styles.heading}>📒 My Notes</Text>
-      {baseUrl ? (
-        <Text style={{ textAlign: "center", marginBottom: 8 }}>
-          Backend: {baseUrl}
-        </Text>
-      ) : null}
-      {error ? (
-        <Text style={{ color: "red", marginBottom: 8 }}>{error}</Text>
-      ) : null}
+      <Text style={styles.header}>📒 My Notes</Text>
 
-      <TextInput
-        style={styles.input}
-        placeholder="Title"
-        value={title}
-        onChangeText={setTitle}
-      />
-      <TextInput
-        style={[styles.input, { height: 80 }]}
-        placeholder="Content"
-        value={content}
-        onChangeText={setContent}
-        multiline
-      />
+      <View style={styles.inputRow}>
+        <TextInput style={styles.input} placeholder="Title" value={title} onChangeText={setTitle} />
+        <TextInput
+          style={[styles.input, styles.inputMultiline]}
+          placeholder="Content"
+          value={content}
+          onChangeText={setContent}
+          multiline
+        />
+        <TouchableOpacity style={styles.primaryButton} onPress={addNote}>
+          <Text style={styles.buttonText}>Add Note</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.ghostButton} onPress={onRefresh}>
+          <Text style={styles.ghostText}>Refresh</Text>
+        </TouchableOpacity>
+      </View>
 
-      <Button title="Add Note" onPress={addNote} />
-      <View style={{ height: 12 }} />
-      <Button
-        title="Refresh"
-        onPress={() => fetchNotes(baseUrl)}
-        disabled={loading}
-      />
       {loading && <ActivityIndicator style={{ marginTop: 8 }} />}
 
       <FlatList
         data={notes}
         keyExtractor={(item, index) => (item && item.id != null ? String(item.id) : String(index))}
+        refreshing={refreshing}
+        onRefresh={onRefresh}
+        contentContainerStyle={{ paddingBottom: 60 }}
         renderItem={({ item }) => (
-          <View style={styles.noteCard}>
-            <Text style={styles.noteTitle}>{item.title}</Text>
-            <Text>{item.content}</Text>
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.cardTitle}>{item.title}</Text>
+            </View>
+            <Text style={styles.cardContent}>{item.content}</Text>
+            <View style={styles.cardActions}>
+              <TouchableOpacity style={styles.editBtn} onPress={() => openEdit(item)}>
+                <Text style={styles.actionText}>Edit</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.deleteBtn} onPress={() => deleteNote(item.id)}>
+                <Text style={styles.actionText}>Delete</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
       />
+
+      {/* Edit Modal */}
+      <Modal visible={isModalVisible} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modal}>
+            <Text style={styles.modalTitle}>Edit Note</Text>
+            <TextInput style={styles.input} value={editTitle} onChangeText={setEditTitle} placeholder="Title" />
+            <TextInput
+              style={[styles.input, styles.inputMultiline]}
+              value={editContent}
+              onChangeText={setEditContent}
+              placeholder="Content"
+              multiline
+            />
+            <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
+              <TouchableOpacity style={[styles.ghostButton, { marginRight: 8 }]} onPress={() => setIsModalVisible(false)}>
+                <Text style={styles.ghostText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.primaryButton} onPress={saveEdit}>
+                <Text style={styles.buttonText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
+// styles (improved aesthetics)
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f8f8f8",
-    padding: 20,
-    marginTop: 40,
+    backgroundColor: "#eef2f7",
+    padding: 16,
+    paddingTop: 44,
   },
-  heading: {
-    fontSize: 24,
-    fontWeight: "bold",
-    marginBottom: 20,
+  header: {
+    fontSize: 26,
+    fontWeight: "700",
     textAlign: "center",
+    marginBottom: 12,
+    color: "#0f172a",
+  },
+  inputRow: {
+    marginBottom: 12,
   },
   input: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    padding: 10,
-    marginBottom: 10,
-    borderRadius: 5,
-    backgroundColor: "white",
-  },
-  noteCard: {
     backgroundColor: "#fff",
-    padding: 15,
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "#e6e9ee",
+  },
+  inputMultiline: {
+    height: 80,
+    textAlignVertical: "top",
+  },
+  primaryButton: {
+    backgroundColor: "#2563eb",
+    paddingVertical: 12,
     borderRadius: 8,
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  buttonText: {
+    color: "#fff",
+    fontWeight: "600",
+  },
+  ghostButton: {
+    backgroundColor: "transparent",
+    paddingVertical: 10,
+    alignItems: "center",
+    borderRadius: 8,
+  },
+  ghostText: {
+    color: "#2563eb",
+    fontWeight: "600",
+  },
+  card: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 14,
     marginVertical: 8,
     shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
     elevation: 2,
+    borderWidth: 1,
+    borderColor: "#eef2f7",
   },
-  noteTitle: {
+  cardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
+  cardTitle: {
     fontSize: 18,
-    fontWeight: "bold",
+    fontWeight: "700",
+    color: "#0f172a",
+  },
+  cardContent: {
+    color: "#334155",
+    marginBottom: 10,
+  },
+  cardActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 8,
+  },
+  editBtn: {
+    backgroundColor: "#f59e0b",
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    marginRight: 8,
+  },
+  deleteBtn: {
+    backgroundColor: "#ef4444",
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+  },
+  actionText: {
+    color: "#fff",
+    fontWeight: "600",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.6)",
+    justifyContent: "center",
+    padding: 20,
+  },
+  modal: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 16,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    marginBottom: 8,
   },
 });
